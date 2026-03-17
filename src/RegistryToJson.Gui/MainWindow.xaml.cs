@@ -13,6 +13,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _watchTimer;
     private RegistrySnapshot? _baselineSnapshot;
     private RegistrySnapshot? _currentSnapshot;
+    private bool _suppressSettingsPersistence;
+    private bool _suppressWatchToggleHandling;
 
     public ObservableCollection<SnapshotTreeItem> RootItems { get; } = [];
 
@@ -24,7 +26,17 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         DataContext = this;
-        UpdateWatchTimerInterval();
+
+        RegisterPersistenceHandlers();
+        RestorePersistedSettings();
+        EnsureValidInitialInterval();
+
+        Closing += MainWindow_Closing;
+
+        if (WatchCheckBox.IsChecked == true)
+        {
+            Loaded += MainWindow_Loaded;
+        }
     }
 
     private async void RefreshSnapshot_Click(object sender, RoutedEventArgs e)
@@ -66,6 +78,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true)
         {
             OutputPathTextBox.Text = dialog.FileName;
+            PersistSettings();
         }
     }
 
@@ -99,23 +112,25 @@ public partial class MainWindow : Window
 
     private async void WatchCheckBox_OnChanged(object sender, RoutedEventArgs e)
     {
+        if (_suppressWatchToggleHandling)
+        {
+            return;
+        }
+
         if (WatchCheckBox.IsChecked == true)
         {
-            if (!UpdateWatchTimerInterval())
+            if (!await StartWatchAsync())
             {
                 WatchCheckBox.IsChecked = false;
                 return;
             }
-
-            _watchTimer.Start();
-            SetStatus("Watch Enabled", "watch 已启动，正在定时刷新。", isWarning: true);
-            await RefreshSnapshotAsync(updateStatusOnNoBaseline: false);
         }
         else
         {
-            _watchTimer.Stop();
-            SetStatus("Watch Disabled", "watch 已停止。");
+            StopWatch(updateStatus: true);
         }
+
+        PersistSettings();
     }
 
     private async void WatchTimer_Tick(object? sender, EventArgs e)
@@ -217,6 +232,127 @@ public partial class MainWindow : Window
 
         _watchTimer.Interval = TimeSpan.FromSeconds(seconds);
         return true;
+    }
+
+    private void RegisterPersistenceHandlers()
+    {
+        RegistryPathTextBox.TextChanged += PersistedInput_OnChanged;
+        OutputPathTextBox.TextChanged += PersistedInput_OnChanged;
+        IntervalTextBox.TextChanged += PersistedInput_OnChanged;
+    }
+
+    private void RestorePersistedSettings()
+    {
+        var settings = GuiSettingsStore.Load();
+
+        _suppressSettingsPersistence = true;
+        _suppressWatchToggleHandling = true;
+
+        RegistryPathTextBox.Text = string.IsNullOrWhiteSpace(settings.RegistryPath)
+            ? RegistryPathTextBox.Text
+            : settings.RegistryPath;
+        OutputPathTextBox.Text = settings.OutputPath;
+        IntervalTextBox.Text = string.IsNullOrWhiteSpace(settings.IntervalText)
+            ? IntervalTextBox.Text
+            : settings.IntervalText;
+        WatchCheckBox.IsChecked = settings.WatchEnabled;
+
+        _suppressWatchToggleHandling = false;
+        _suppressSettingsPersistence = false;
+    }
+
+    private void EnsureValidInitialInterval()
+    {
+        if (UpdateWatchTimerInterval())
+        {
+            return;
+        }
+
+        _suppressSettingsPersistence = true;
+        IntervalTextBox.Text = "2";
+        _suppressSettingsPersistence = false;
+        UpdateWatchTimerInterval();
+        PersistSettings();
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= MainWindow_Loaded;
+
+        if (WatchCheckBox.IsChecked != true)
+        {
+            return;
+        }
+
+        if (!await StartWatchAsync())
+        {
+            _suppressWatchToggleHandling = true;
+            WatchCheckBox.IsChecked = false;
+            _suppressWatchToggleHandling = false;
+            PersistSettings();
+        }
+    }
+
+    private async Task<bool> StartWatchAsync()
+    {
+        if (!UpdateWatchTimerInterval())
+        {
+            return false;
+        }
+
+        _watchTimer.Start();
+        SetStatus("Watch Enabled", "watch 已启动，正在定时刷新。", isWarning: true);
+        await RefreshSnapshotAsync(updateStatusOnNoBaseline: false);
+        return true;
+    }
+
+    private void StopWatch(bool updateStatus)
+    {
+        _watchTimer.Stop();
+        if (updateStatus)
+        {
+            SetStatus("Watch Disabled", "watch 已停止。");
+        }
+    }
+
+    private void PersistedInput_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender == IntervalTextBox && _watchTimer.IsEnabled)
+        {
+            _watchTimer.Interval = int.TryParse(IntervalTextBox.Text.Trim(), out var seconds) && seconds > 0
+                ? TimeSpan.FromSeconds(seconds)
+                : _watchTimer.Interval;
+        }
+
+        PersistSettings();
+    }
+
+    private void PersistSettings()
+    {
+        if (_suppressSettingsPersistence)
+        {
+            return;
+        }
+
+        try
+        {
+            GuiSettingsStore.Save(new GuiSettings
+            {
+                RegistryPath = RegistryPathTextBox.Text.Trim(),
+                OutputPath = OutputPathTextBox.Text.Trim(),
+                IntervalText = IntervalTextBox.Text.Trim(),
+                WatchEnabled = WatchCheckBox.IsChecked == true,
+            });
+        }
+        catch
+        {
+            // Ignore persistence failures to avoid blocking the main workflow.
+        }
+    }
+
+    private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        PersistSettings();
     }
 
     private void SetStatus(string headline, string detail, bool isError = false, bool isWarning = false)
