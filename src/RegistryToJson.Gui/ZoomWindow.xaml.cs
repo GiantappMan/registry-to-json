@@ -12,7 +12,6 @@ namespace RegistryToJson.Gui;
 public partial class ZoomWindow : Window
 {
     private const int MaxPreviewLength = 240;
-    private readonly Stack<CompareViewState> _compareHistory = new();
     private TextCompareService? _compareService;
     private CompareViewState? _currentCompareState;
 
@@ -39,10 +38,17 @@ public partial class ZoomWindow : Window
         ZoomContentHost.Content = WrapInPanel(CreateReadonlyTextBox(FormatDiffEntries(items)));
     }
 
-    public async Task ShowDiffCompareAsync(DiffListItem item, TextCompareService compareService, string title, string description, string meta)
+    public async Task ShowDiffCompareAsync(
+        DiffListItem item,
+        TextCompareService compareService,
+        string title,
+        string description,
+        string meta,
+        int depth = 0,
+        bool collapseUnchangedRows = false,
+        string? baseTitle = null)
     {
         _compareService = compareService;
-        _compareHistory.Clear();
         _currentCompareState = null;
 
         await LoadCompareStateAsync(new CompareViewState(
@@ -50,9 +56,12 @@ public partial class ZoomWindow : Window
             title,
             description,
             meta,
-            "根层",
+            depth == 0 ? "根层" : $"第 {depth + 1} 层",
             pushCurrentToHistory: false,
-            loadingText: "正在生成左右对照视图..."));
+            loadingText: "正在生成左右对照视图...",
+            depth: depth,
+            baseTitle: baseTitle ?? ResolveBaseTitle(title),
+            collapseUnchangedRows: collapseUnchangedRows));
     }
 
     private async Task LoadCompareStateAsync(CompareViewState state)
@@ -70,11 +79,6 @@ public partial class ZoomWindow : Window
         try
         {
             var compareResult = await Task.Run(() => _compareService.Compare(state.Item.OldValue, state.Item.NewValue));
-            if (state.PushCurrentToHistory && _currentCompareState is not null)
-            {
-                _compareHistory.Push(_currentCompareState);
-            }
-
             var resolvedState = state with { Result = compareResult };
             _currentCompareState = resolvedState;
             ZoomContentHost.Content = WrapInPanel(CreateCompareView(resolvedState, _compareService));
@@ -173,9 +177,10 @@ public partial class ZoomWindow : Window
         summaryPanel.Children.Add(CreateSummaryText($"路径: {state.Item.Path}"));
         summaryPanel.Children.Add(CreateSummaryText($"名称: {state.Item.Name}"));
         summaryPanel.Children.Add(CreateSummaryText($"当前层级: {state.LevelLabel}"));
+        summaryPanel.Children.Add(CreateSummaryText($"展示模式: {(state.CollapseUnchangedRows ? "仅变化" : "完整对照")}"));
         summaryPanel.Children.Add(CreateSummaryText($"展示行数: {state.Result?.Lines.Count ?? 0}"));
         summaryPanel.Children.Add(CreateSummaryText($"变化行数: {state.ChangeCount}"));
-        summaryPanel.Children.Add(CreateSummaryText("操作: 黄色/红色/青色代表变化，蓝色代表可继续下钻；右侧迷你地图可快速跳到变化位。"));
+        summaryPanel.Children.Add(CreateSummaryText("操作: 黄色/红色/青色代表变化，蓝色代表可继续下钻；双击会新开子对比窗口。"));
 
         if (NeedsPreviewNotice(state.Item, state.Result))
         {
@@ -186,11 +191,6 @@ public partial class ZoomWindow : Window
         {
             Margin = new Thickness(0, 10, 0, 0),
         };
-        if (_compareHistory.Count > 0)
-        {
-            actionPanel.Children.Add(CreateActionButton("返回上一级", async (_, _) => await NavigateBackAsync()));
-        }
-
         actionPanel.Children.Add(CreateActionButton("上一处变化", (_, _) => MoveToChange(state, -1)));
         actionPanel.Children.Add(CreateActionButton("下一处变化", (_, _) => MoveToChange(state, 1)));
         actionPanel.Children.Add(CreateActionButton("复制旧值全文", (_, _) => Clipboard.SetText(string.IsNullOrEmpty(state.Item.OldValue) ? "(空)" : state.Item.OldValue)));
@@ -332,6 +332,11 @@ public partial class ZoomWindow : Window
     private DataGrid CreateCompareGrid(CompareViewState state, TextCompareService compareService)
     {
         var rows = (state.Result?.Lines ?? []).Select(line => CreateCompareRowViewModel(line, state, compareService)).ToList();
+        if (state.CollapseUnchangedRows)
+        {
+            rows = CollapseUnchangedRows(rows, state);
+        }
+
         state.Rows = rows;
         state.ChangeIndices = rows
             .Select((row, index) => (row, index))
@@ -391,21 +396,20 @@ public partial class ZoomWindow : Window
         }
 
         var nestedState = CreateNestedState(row);
-        await LoadCompareStateAsync(nestedState);
-    }
-
-    private async Task NavigateBackAsync()
-    {
-        if (_compareHistory.Count == 0)
+        var childWindow = new ZoomWindow
         {
-            return;
-        }
-
-        var previousState = _compareHistory.Pop();
-        _currentCompareState = previousState;
-        UpdateWindowHeader(previousState.Title, previousState.Description, previousState.Meta);
-        ZoomContentHost.Content = WrapInPanel(CreateCompareView(previousState, _compareService!));
-        await Task.CompletedTask;
+            Owner = this,
+        };
+        childWindow.Show();
+        await childWindow.ShowDiffCompareAsync(
+            nestedState.Item,
+            _compareService,
+            nestedState.Title,
+            nestedState.Description,
+            nestedState.Meta,
+            nestedState.Depth,
+            collapseUnchangedRows: true,
+            baseTitle: nestedState.BaseTitle);
     }
 
     private void MoveToChange(CompareViewState state, int direction)
@@ -469,12 +473,11 @@ public partial class ZoomWindow : Window
             description,
             meta,
             $"第 {depth + 1} 层",
-            pushCurrentToHistory: true,
-            loadingText: $"正在进入第 {depth + 1} 层嵌套 compare...")
-        {
-            Depth = depth,
-            BaseTitle = row.ParentState.BaseTitle,
-        };
+            pushCurrentToHistory: false,
+            loadingText: $"正在进入第 {depth + 1} 层嵌套 compare...",
+            depth: depth,
+            baseTitle: row.ParentState.BaseTitle,
+            collapseUnchangedRows: true);
     }
 
     private static DataGridTextColumn CreateNumberColumn(string header, string bindingPath, double width)
@@ -676,6 +679,63 @@ public partial class ZoomWindow : Window
         return (Brush)new BrushConverter().ConvertFrom(hex)!;
     }
 
+    private static string ResolveBaseTitle(string title)
+    {
+        return title.Contains('|', StringComparison.Ordinal)
+            ? title[..title.IndexOf('|', StringComparison.Ordinal)].TrimEnd()
+            : title;
+    }
+
+    private static List<CompareRowViewModel> CollapseUnchangedRows(List<CompareRowViewModel> rows, CompareViewState state)
+    {
+        var collapsed = new List<CompareRowViewModel>();
+        var hiddenCount = 0;
+
+        foreach (var row in rows)
+        {
+            if (!row.IsChanged && !row.CanDrillDown)
+            {
+                hiddenCount++;
+                continue;
+            }
+
+            if (hiddenCount > 0)
+            {
+                collapsed.Add(CreateCollapsedSummaryRow(hiddenCount, state));
+                hiddenCount = 0;
+            }
+
+            collapsed.Add(row);
+        }
+
+        if (hiddenCount > 0)
+        {
+            collapsed.Add(CreateCollapsedSummaryRow(hiddenCount, state));
+        }
+
+        return collapsed;
+    }
+
+    private static CompareRowViewModel CreateCollapsedSummaryRow(int hiddenCount, CompareViewState state)
+    {
+        var text = $"... 已折叠 {hiddenCount} 行未变化内容 ...";
+        return new CompareRowViewModel
+        {
+            LeftLineNumber = string.Empty,
+            LeftPreview = text,
+            RightLineNumber = string.Empty,
+            RightPreview = text,
+            LeftBackground = Brushes.Transparent,
+            RightBackground = Brushes.Transparent,
+            NestedCandidate = null,
+            ParentState = state,
+            IsChanged = false,
+            CanDrillDown = false,
+            ChangeKind = TextCompareChangeKind.Unchanged,
+            ChangeKindLabel = "折叠",
+        };
+    }
+
     private static string FormatSnapshotTree(IEnumerable<SnapshotTreeItem> items)
     {
         var builder = new StringBuilder();
@@ -757,19 +817,22 @@ public partial class ZoomWindow : Window
         string Meta,
         string LevelLabel,
         bool pushCurrentToHistory,
-        string loadingText)
+        string loadingText,
+        int depth,
+        string baseTitle,
+        bool collapseUnchangedRows)
     {
         public TextCompareResult? Result { get; init; }
 
-        public int Depth { get; init; }
+        public int Depth { get; init; } = depth;
 
-        public string BaseTitle { get; init; } = Title.Contains('|', StringComparison.Ordinal)
-            ? Title[..Title.IndexOf('|', StringComparison.Ordinal)].TrimEnd()
-            : Title;
+        public string BaseTitle { get; init; } = baseTitle;
 
         public bool PushCurrentToHistory => pushCurrentToHistory;
 
         public string LoadingText => loadingText;
+
+        public bool CollapseUnchangedRows => collapseUnchangedRows;
 
         public DataGrid? Grid { get; set; }
 
