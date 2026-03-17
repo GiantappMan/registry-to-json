@@ -170,8 +170,8 @@ public partial class ZoomWindow : Window
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         actions.Children.Add(Action("上一处变化", (_, _) => MoveToChange(state, -1)));
         actions.Children.Add(Action("下一处变化", (_, _) => MoveToChange(state, 1)));
-        actions.Children.Add(Action("复制旧值全文", (_, _) => Clipboard.SetText(string.IsNullOrEmpty(state.Item.OldValue) ? "(空)" : state.Item.OldValue)));
-        actions.Children.Add(Action("复制新值全文", (_, _) => Clipboard.SetText(string.IsNullOrEmpty(state.Item.NewValue) ? "(空)" : state.Item.NewValue)));
+        actions.Children.Add(Action("复制旧值全文", (_, _) => TryCopyToClipboard(string.IsNullOrEmpty(state.Item.OldValue) ? "(空)" : state.Item.OldValue, "旧值")));
+        actions.Children.Add(Action("复制新值全文", (_, _) => TryCopyToClipboard(string.IsNullOrEmpty(state.Item.NewValue) ? "(空)" : state.Item.NewValue, "新值")));
         summary.Children.Add(actions);
         root.Children.Add(summary);
 
@@ -586,6 +586,23 @@ public partial class ZoomWindow : Window
         };
         button.Click += onClick;
         return button;
+    }
+
+    private void TryCopyToClipboard(string content, string label)
+    {
+        try
+        {
+            Clipboard.SetText(content);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"复制{label}失败：{ex.Message}",
+                "复制失败",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     private static Brush Brush(string key) => (Brush)Application.Current.FindResource(key);
