@@ -125,9 +125,15 @@
             </Grid>
         </Border>
 
-        <ScrollViewer Grid.Row="1" Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel>
-                <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="20">
+        <Grid Grid.Row="1" Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="1.3*" />
+                <RowDefinition Height="1*" />
+                <RowDefinition Height="1.15*" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="20">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="420" />
@@ -137,7 +143,7 @@
 
                         <StackPanel Grid.Column="0">
                             <TextBlock Text="当前配置工作台" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" />
-                            <TextBlock Text="右侧内容始终绑定到左侧当前选中的监控配置。" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="右侧各区域现在独立滚动，便于只操作当前控件。" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
 
                             <TextBlock Text="配置名称" Margin="0,18,0,0" />
                             <TextBox x:Name="ConfigurationNameTextBox" TextChanged="ConfigurationNameTextBox_OnChanged" />
@@ -208,72 +214,78 @@
                             </StackPanel>
                         </Border>
                     </Grid>
-                </Border>
+                </ScrollViewer>
+            </Border>
 
-                <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18" Margin="0,16,0,0">
-                    <Grid MinHeight="260">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <DockPanel Grid.Row="0" Margin="0,0,0,12">
-                            <TextBlock Text="当前快照树" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
-                            <TextBlock x:Name="SnapshotMetaTextBlock" Text="尚未读取快照" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
-                        </DockPanel>
-                        <TreeView Grid.Row="1" x:Name="SnapshotTreeView" ItemTemplate="{StaticResource TreeItemTemplate}" ItemsSource="{Binding RootItems}">
-                            <TreeView.Resources>
-                                <HierarchicalDataTemplate DataType="{x:Type local:SnapshotTreeItem}" ItemsSource="{Binding Children}" ItemTemplate="{StaticResource TreeItemTemplate}" />
-                            </TreeView.Resources>
-                        </TreeView>
-                    </Grid>
-                </Border>
+            <Border Grid.Row="1" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18" Margin="0,16,0,0">
+                <Grid MinHeight="260">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                        <TextBlock Text="当前快照树" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
+                        <TextBlock Text="双击放大查看" Margin="0,6,16,0" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Right" />
+                        <TextBlock x:Name="SnapshotMetaTextBlock" Text="尚未读取快照" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
+                    </DockPanel>
+                    <TreeView Grid.Row="1"
+                              x:Name="SnapshotTreeView"
+                              ItemTemplate="{StaticResource TreeItemTemplate}"
+                              ItemsSource="{Binding RootItems}"
+                              MouseDoubleClick="SnapshotTreeView_MouseDoubleClick">
+                        <TreeView.Resources>
+                            <HierarchicalDataTemplate DataType="{x:Type local:SnapshotTreeItem}" ItemsSource="{Binding Children}" ItemTemplate="{StaticResource TreeItemTemplate}" />
+                        </TreeView.Resources>
+                    </TreeView>
+                </Grid>
+            </Border>
 
-                <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18" Margin="0,16,0,0">
-                    <Grid MinHeight="300">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <DockPanel Grid.Row="0" Margin="0,0,0,12">
-                            <TextBlock Text="变化明细" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
-                            <TextBlock x:Name="DiffMetaTextBlock" Text="保留基线后可查看与当前快照的差异" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
-                        </DockPanel>
-                        <ListView Grid.Row="1" x:Name="DiffListView">
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
-                                    <Setter Property="Padding" Value="8" />
-                                    <Setter Property="Margin" Value="0,0,0,6" />
-                                    <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
-                                    <Setter Property="BorderThickness" Value="1" />
-                                    <Setter Property="Background" Value="{StaticResource PanelBackgroundElevatedBrush}" />
-                                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ChangeLabel}" Value="新增">
-                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding ChangeLabel}" Value="修改">
-                                            <Setter Property="BorderBrush" Value="{StaticResource WarningBrush}" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding ChangeLabel}" Value="删除">
-                                            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </ListView.ItemContainerStyle>
-                            <ListView.View>
-                                <GridView>
-                                    <GridViewColumn Header="变化" Width="70" DisplayMemberBinding="{Binding ChangeLabel}" />
-                                    <GridViewColumn Header="类型" Width="70" DisplayMemberBinding="{Binding ItemType}" />
-                                    <GridViewColumn Header="路径" Width="360" DisplayMemberBinding="{Binding Path}" />
-                                    <GridViewColumn Header="名称" Width="160" DisplayMemberBinding="{Binding Name}" />
-                                    <GridViewColumn Header="旧值" Width="220" DisplayMemberBinding="{Binding OldValue}" />
-                                    <GridViewColumn Header="新值" Width="220" DisplayMemberBinding="{Binding NewValue}" />
-                                </GridView>
-                            </ListView.View>
-                        </ListView>
-                    </Grid>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
+            <Border Grid.Row="2" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18" Margin="0,16,0,0">
+                <Grid MinHeight="300">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                        <TextBlock Text="变化明细" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
+                        <TextBlock Text="双击放大查看" Margin="0,6,16,0" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Right" />
+                        <TextBlock x:Name="DiffMetaTextBlock" Text="保留基线后可查看与当前快照的差异" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
+                    </DockPanel>
+                    <ListView Grid.Row="1" x:Name="DiffListView" MouseDoubleClick="DiffListView_MouseDoubleClick">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
+                                <Setter Property="Padding" Value="8" />
+                                <Setter Property="Margin" Value="0,0,0,6" />
+                                <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="Background" Value="{StaticResource PanelBackgroundElevatedBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ChangeLabel}" Value="新增">
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ChangeLabel}" Value="修改">
+                                        <Setter Property="BorderBrush" Value="{StaticResource WarningBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ChangeLabel}" Value="删除">
+                                        <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="变化" Width="70" DisplayMemberBinding="{Binding ChangeLabel}" />
+                                <GridViewColumn Header="类型" Width="70" DisplayMemberBinding="{Binding ItemType}" />
+                                <GridViewColumn Header="路径" Width="360" DisplayMemberBinding="{Binding Path}" />
+                                <GridViewColumn Header="名称" Width="160" DisplayMemberBinding="{Binding Name}" />
+                                <GridViewColumn Header="旧值" Width="220" DisplayMemberBinding="{Binding OldValue}" />
+                                <GridViewColumn Header="新值" Width="220" DisplayMemberBinding="{Binding NewValue}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
