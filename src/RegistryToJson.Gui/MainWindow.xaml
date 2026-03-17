@@ -230,7 +230,7 @@
                     </Grid.RowDefinitions>
                     <DockPanel Grid.Row="0" Margin="0,0,0,12">
                         <TextBlock Text="当前快照树" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
-                        <TextBlock Text="双击放大查看" Margin="0,6,16,0" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Right" />
+                        <TextBlock Text="双击变化项打开左右对照 compare" Margin="0,6,16,0" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Right" />
                         <TextBlock x:Name="SnapshotMetaTextBlock" Text="尚未读取快照" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
                     </DockPanel>
                     <TreeView Grid.Row="1"

@@ -8,6 +8,7 @@ public sealed class RegistrySnapshotServiceTests : IDisposable
     private readonly string _testKeyPath = $@"HKEY_CURRENT_USER\Software\RegistryToJson.Tests\{Guid.NewGuid():N}";
     private readonly RegistrySnapshotService _snapshotService = new();
     private readonly RegistryDiffService _diffService = new();
+    private readonly TextCompareService _textCompareService = new();
 
     [Fact]
     public void Capture_WithValueSelector_ReturnsOnlyRequestedValue()
@@ -67,6 +68,39 @@ public sealed class RegistrySnapshotServiceTests : IDisposable
         Assert.Equal("TargetValue", entry.Name);
         Assert.Equal("before", entry.OldValue);
         Assert.Null(entry.NewValue);
+    }
+
+    [Fact]
+    public void TextCompare_WithJsonContent_BuildsAlignedModifiedRows()
+    {
+        var result = _textCompareService.Compare(
+            """
+            {"alpha":1,"beta":2}
+            """,
+            """
+            {"alpha":1,"beta":3,"gamma":4}
+            """);
+
+        Assert.Contains(result.Lines, static line => line.ChangeKind == TextCompareChangeKind.Modified);
+        Assert.Contains(result.Lines, static line => line.ChangeKind == TextCompareChangeKind.Added);
+        Assert.Contains("\"beta\": 2", result.LeftFormattedText);
+        Assert.Contains("\"beta\": 3", result.RightFormattedText);
+    }
+
+    [Fact]
+    public void TextCompare_WithLargeText_UsesWindowedRows()
+    {
+        var oldLines = Enumerable.Range(1, 600).Select(index => $"line-{index}").ToArray();
+        var newLines = oldLines.ToArray();
+        newLines[320] = "line-321-changed";
+
+        var result = _textCompareService.Compare(
+            string.Join('\n', oldLines),
+            string.Join('\n', newLines));
+
+        Assert.True(result.Lines.Count < 200);
+        Assert.Contains(result.Lines, static line => line.LeftText.Contains("省略", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => line.ChangeKind == TextCompareChangeKind.Modified);
     }
 
     public void Dispose()

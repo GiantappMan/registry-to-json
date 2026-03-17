@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using RegistryToJson.Core;
 
 namespace RegistryToJson.Gui;
 
@@ -27,7 +28,7 @@ public partial class MainWindow
         zoomWindow.Show();
     }
 
-    private void DiffListView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private async void DiffListView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (SelectedConfiguration is null)
         {
@@ -40,11 +41,24 @@ public partial class MainWindow
             Owner = this,
         };
 
-        zoomWindow.ShowDiffEntries(
-            SelectedConfiguration.DiffEntries,
-            $"{SelectedConfiguration.Name} | 变化明细",
-            "双击主界面的变化明细区域后，可在此窗口查看更宽的差异表格。",
-            DiffMetaTextBlock.Text);
         zoomWindow.Show();
+
+        if (DiffListView.SelectedItem is DiffListItem selectedItem)
+        {
+            await zoomWindow.ShowDiffCompareAsync(
+                selectedItem,
+                new TextCompareService(),
+                $"{SelectedConfiguration.Name} | 左右对照",
+                "当前变化项已切换为左右双栏 compare 视图，方便像 SVN compare 一样快速定位变化。",
+                DiffMetaTextBlock.Text);
+        }
+        else
+        {
+            zoomWindow.ShowDiffEntries(
+                SelectedConfiguration.DiffEntries,
+                $"{SelectedConfiguration.Name} | 变化明细",
+                "当前未选中单条变化，已回退为完整变化列表。",
+                DiffMetaTextBlock.Text);
+        }
     }
 }
