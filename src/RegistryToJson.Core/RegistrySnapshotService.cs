@@ -13,17 +13,22 @@ public sealed class RegistrySnapshotService
             throw new ArgumentException("Registry path is required.", nameof(registryPath));
         }
 
-        using var registryKey = OpenRegistryKey(registryPath, out var normalizedPath);
+        var target = ParseTarget(registryPath);
+        using var registryKey = OpenRegistryKey(target.RegistryKeyPath, out var normalizedKeyPath);
         if (registryKey is null)
         {
             throw new InvalidOperationException($"Registry path not found: {registryPath}");
         }
 
+        var normalizedSourcePath = target.ValueName is null
+            ? normalizedKeyPath
+            : $"{normalizedKeyPath}:{target.ValueName}";
+
         return new RegistrySnapshot
         {
-            SourcePath = normalizedPath,
+            SourcePath = normalizedSourcePath,
             CapturedAtUtc = DateTime.UtcNow,
-            Root = ParseNode(registryKey, GetLeafName(normalizedPath), normalizedPath),
+            Root = ParseNode(registryKey, GetLeafName(normalizedKeyPath), normalizedKeyPath, target.ValueName),
         };
     }
 
@@ -38,7 +43,7 @@ public sealed class RegistrySnapshotService
 
     private static RegistryKey? OpenRegistryKey(string registryPath, out string normalizedPath)
     {
-        normalizedPath = NormalizeRegistryPath(registryPath);
+        normalizedPath = NormalizeKeyPath(registryPath);
         var parts = normalizedPath.Split('\\', 2, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
         {
@@ -66,7 +71,7 @@ public sealed class RegistrySnapshotService
         return string.IsNullOrEmpty(subKeyPath) ? rootKey : rootKey.OpenSubKey(subKeyPath);
     }
 
-    private static RegistryNodeSnapshot ParseNode(RegistryKey registryKey, string name, string fullPath)
+    private static RegistryNodeSnapshot ParseNode(RegistryKey registryKey, string name, string fullPath, string? valueNameFilter = null)
     {
         var node = new RegistryNodeSnapshot
         {
@@ -74,12 +79,22 @@ public sealed class RegistrySnapshotService
             FullPath = fullPath,
         };
 
+        if (valueNameFilter is not null)
+        {
+            if (TryReadValueSnapshot(registryKey, valueNameFilter, out var valueSnapshot))
+            {
+                node.Values.Add(valueSnapshot);
+            }
+
+            return node;
+        }
+
         foreach (var valueName in registryKey.GetValueNames().OrderBy(static item => item, StringComparer.OrdinalIgnoreCase))
         {
             var value = registryKey.GetValue(valueName);
             node.Values.Add(new RegistryValueSnapshot
             {
-                Name = string.IsNullOrEmpty(valueName) ? "(Default)" : valueName,
+                Name = NormalizeValueName(valueName),
                 Kind = registryKey.GetValueKind(valueName).ToString(),
                 Data = ConvertRegistryValue(value),
             });
@@ -97,6 +112,29 @@ public sealed class RegistrySnapshotService
         }
 
         return node;
+    }
+
+    private static bool TryReadValueSnapshot(RegistryKey registryKey, string requestedValueName, out RegistryValueSnapshot valueSnapshot)
+    {
+        var actualValueName = GetActualValueName(requestedValueName);
+        var matchedValueName = registryKey
+            .GetValueNames()
+            .FirstOrDefault(name => string.Equals(NormalizeValueName(name), requestedValueName, StringComparison.OrdinalIgnoreCase));
+
+        if (matchedValueName is null)
+        {
+            valueSnapshot = null!;
+            return false;
+        }
+
+        var value = registryKey.GetValue(actualValueName);
+        valueSnapshot = new RegistryValueSnapshot
+        {
+            Name = NormalizeValueName(matchedValueName),
+            Kind = registryKey.GetValueKind(actualValueName).ToString(),
+            Data = ConvertRegistryValue(value),
+        };
+        return true;
     }
 
     private static object ToExportObject(RegistryNodeSnapshot node)
@@ -160,7 +198,31 @@ public sealed class RegistrySnapshotService
             .Trim();
     }
 
-    private static string NormalizeRegistryPath(string registryPath)
+    private static RegistryTarget ParseTarget(string registryPath)
+    {
+        var normalizedInput = NormalizeRegistryInput(registryPath);
+        var separatorIndex = normalizedInput.IndexOf(':');
+        if (separatorIndex > 0 && separatorIndex < normalizedInput.Length - 1)
+        {
+            var keyPath = NormalizeKeyPath(normalizedInput[..separatorIndex]);
+            var valueName = NormalizeValueName(normalizedInput[(separatorIndex + 1)..].Trim());
+            if (!string.IsNullOrWhiteSpace(keyPath) && !string.IsNullOrWhiteSpace(valueName))
+            {
+                return new RegistryTarget
+                {
+                    RegistryKeyPath = keyPath,
+                    ValueName = valueName,
+                };
+            }
+        }
+
+        return new RegistryTarget
+        {
+            RegistryKeyPath = NormalizeKeyPath(normalizedInput),
+        };
+    }
+
+    private static string NormalizeRegistryInput(string registryPath)
     {
         var trimmed = registryPath.Trim();
         var index = trimmed.IndexOf("HKEY_", StringComparison.OrdinalIgnoreCase);
@@ -169,12 +231,34 @@ public sealed class RegistrySnapshotService
             trimmed = trimmed[index..];
         }
 
-        return trimmed.Trim().TrimEnd('\\');
+        return trimmed.Trim();
+    }
+
+    private static string NormalizeKeyPath(string registryPath)
+    {
+        return NormalizeRegistryInput(registryPath).TrimEnd('\\');
+    }
+
+    private static string NormalizeValueName(string valueName)
+    {
+        return string.IsNullOrEmpty(valueName) ? "(Default)" : valueName.Trim();
+    }
+
+    private static string GetActualValueName(string valueName)
+    {
+        return string.Equals(valueName, "(Default)", StringComparison.OrdinalIgnoreCase) ? string.Empty : valueName;
     }
 
     private static string GetLeafName(string normalizedPath)
     {
         var lastSeparator = normalizedPath.LastIndexOf('\\');
         return lastSeparator >= 0 ? normalizedPath[(lastSeparator + 1)..] : normalizedPath;
+    }
+
+    private sealed class RegistryTarget
+    {
+        public required string RegistryKeyPath { get; init; }
+
+        public string? ValueName { get; init; }
     }
 }

@@ -150,6 +150,11 @@
 
                             <TextBlock Text="注册表路径" />
                             <TextBox x:Name="RegistryPathTextBox" TextChanged="PersistedInput_OnChanged" />
+                            <TextBlock Text="支持整键或单字段：HKEY_...\子键 或 HKEY_...\子键:字段名"
+                                       Margin="0,4,0,8"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
 
                             <TextBlock Text="输出文件" />
                             <Grid>
