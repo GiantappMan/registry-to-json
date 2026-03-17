@@ -7,9 +7,9 @@
         mc:Ignorable="d"
         Title="Registry Watch Console"
         Height="860"
-        Width="1440"
+        Width="1540"
         MinHeight="720"
-        MinWidth="1180">
+        MinWidth="1280">
     <Window.Resources>
         <DataTemplate x:Key="TreeItemTemplate" DataType="{x:Type local:SnapshotTreeItem}">
             <StackPanel>
@@ -23,6 +23,44 @@
                 </ItemsControl>
             </StackPanel>
         </DataTemplate>
+
+        <DataTemplate x:Key="ConfigurationCardTemplate" DataType="{x:Type local:WatchConfigurationState}">
+            <Border Padding="14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="{Binding Name}" FontFamily="Bahnschrift SemiCondensed" FontSize="21" FontWeight="Bold" />
+                    <Border Grid.Column="1"
+                            Background="{StaticResource HeaderBackgroundBrush}"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="10,4">
+                        <TextBlock Text="{Binding WatchStatusLabel}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
+                    </Border>
+
+                    <TextBlock Grid.Row="1"
+                               Grid.ColumnSpan="2"
+                               Margin="0,10,0,0"
+                               Text="{Binding RegistryPathSummary}"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               TextWrapping="Wrap" />
+
+                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,12,0,0">
+                        <TextBlock Text="{Binding StatusLine}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding StatusDetail}" Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid Margin="18">
@@ -31,7 +69,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="360" />
+            <ColumnDefinition Width="340" />
             <ColumnDefinition Width="16" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
@@ -44,56 +82,116 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="REGISTRY WATCH CONSOLE" FontFamily="Bahnschrift SemiCondensed" FontSize="28" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
-                    <TextBlock Text="导出注册表、保留基线，并在 watch 模式下实时查看哪些键和值发生变化。" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}" FontSize="15" />
+                    <TextBlock Text="左侧管理多个监控配置，右侧查看当前配置的快照、基线和变化明细。" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}" FontSize="15" />
                 </StackPanel>
                 <Border Grid.Column="1" Background="{StaticResource PanelBackgroundElevatedBrush}" CornerRadius="14" Padding="16,10" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1">
                     <StackPanel>
-                        <TextBlock Text="状态" FontFamily="Bahnschrift SemiCondensed" FontSize="16" Foreground="{StaticResource MutedTextBrush}" />
+                        <TextBlock Text="当前状态" FontFamily="Bahnschrift SemiCondensed" FontSize="16" Foreground="{StaticResource MutedTextBrush}" />
                         <TextBlock x:Name="StatusHeadlineTextBlock" Text="Idle" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" Foreground="{StaticResource TextBrush}" />
-                        <TextBlock x:Name="StatusDetailTextBlock" Text="尚未加载快照" Foreground="{StaticResource MutedTextBrush}" FontSize="12" />
+                        <TextBlock x:Name="StatusDetailTextBlock" Text="尚未选择监控配置" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="20">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
                 <StackPanel>
-                    <TextBlock Text="输入与控制" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" />
-                    <TextBlock Text="注册表路径" Margin="0,18,0,0" />
-                    <TextBox x:Name="RegistryPathTextBox" Text="HKEY_CURRENT_USER\SOFTWARE" />
-                    <TextBlock Text="输出文件" />
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="OutputPathTextBox" Margin="0,4,8,10" />
-                        <Button Grid.Column="1" Content="浏览" Click="BrowseOutputPath_Click" Padding="18,8" />
-                    </Grid>
-                    <WrapPanel Margin="0,4,0,0">
-                        <Button Content="读取当前快照" Click="RefreshSnapshot_Click" />
-                        <Button Content="导出 JSON" Click="ExportJson_Click" />
-                    </WrapPanel>
-                    <WrapPanel Margin="0,8,0,0">
-                        <Button Content="保留为基线" Click="PinBaseline_Click" />
-                        <Button Content="使用当前替换基线" Click="ReplaceBaseline_Click" />
-                    </WrapPanel>
-                    <Border Background="{StaticResource PanelBackgroundElevatedBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,18,0,0">
+                    <TextBlock Text="监控配置" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" />
+                    <TextBlock Text="每一项都是一套独立的注册表监控参数和 watch 状态。" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <WrapPanel Grid.Row="1" Margin="0,18,0,14">
+                    <Button Content="新增配置" Click="AddConfiguration_Click" />
+                    <Button Content="复制当前" Click="DuplicateConfiguration_Click" />
+                    <Button Content="删除当前" Click="DeleteConfiguration_Click" />
+                </WrapPanel>
+
+                <ListBox Grid.Row="2"
+                         x:Name="ConfigurationsListBox"
+                         ItemsSource="{Binding Configurations}"
+                         SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay}"
+                         ItemTemplate="{StaticResource ConfigurationCardTemplate}"
+                         SelectionChanged="ConfigurationsListBox_SelectionChanged"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="16" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="20">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="420" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="当前配置工作台" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" />
+                            <TextBlock Text="右侧内容始终绑定到左侧当前选中的监控配置。" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+
+                            <TextBlock Text="配置名称" Margin="0,18,0,0" />
+                            <TextBox x:Name="ConfigurationNameTextBox" TextChanged="ConfigurationNameTextBox_OnChanged" />
+
+                            <TextBlock Text="注册表路径" />
+                            <TextBox x:Name="RegistryPathTextBox" TextChanged="PersistedInput_OnChanged" />
+
+                            <TextBlock Text="输出文件" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="OutputPathTextBox" Margin="0,4,8,10" TextChanged="PersistedInput_OnChanged" />
+                                <Button Grid.Column="1" Content="浏览" Click="BrowseOutputPath_Click" Padding="18,8" />
+                            </Grid>
+
+                            <WrapPanel Margin="0,4,0,0">
+                                <Button Content="读取当前快照" Click="RefreshSnapshot_Click" />
+                                <Button Content="导出 JSON" Click="ExportJson_Click" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="保留为基线" Click="PinBaseline_Click" />
+                                <Button Content="使用当前替换基线" Click="ReplaceBaseline_Click" />
+                            </WrapPanel>
+
+                            <Border Background="{StaticResource PanelBackgroundElevatedBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,18,0,0">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <TextBlock Text="Watch 模式" FontFamily="Bahnschrift SemiCondensed" FontSize="20" FontWeight="Bold" DockPanel.Dock="Left" />
+                                        <CheckBox x:Name="WatchCheckBox" Content="启用实时刷新" Checked="WatchCheckBox_OnChanged" Unchecked="WatchCheckBox_OnChanged" HorizontalAlignment="Right" />
+                                    </DockPanel>
+                                    <TextBlock Text="轮询间隔（秒）" Margin="0,12,0,0" />
+                                    <TextBox x:Name="IntervalTextBox" TextChanged="PersistedInput_OnChanged" />
+                                    <TextBlock x:Name="BaselineSummaryTextBlock" Text="尚未保留基线" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="ConfigurationStatusTextBlock" Margin="0,8,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Border Grid.Column="2" Background="{StaticResource PanelBackgroundElevatedBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="16" Padding="18">
                         <StackPanel>
                             <DockPanel>
-                                <TextBlock Text="Watch 模式" FontFamily="Bahnschrift SemiCondensed" FontSize="20" FontWeight="Bold" DockPanel.Dock="Left" />
-                                <CheckBox x:Name="WatchCheckBox" Content="启用实时刷新" Checked="WatchCheckBox_OnChanged" Unchecked="WatchCheckBox_OnChanged" HorizontalAlignment="Right" />
+                                <TextBlock Text="选中配置状态" FontFamily="Bahnschrift SemiCondensed" FontSize="22" FontWeight="Bold" DockPanel.Dock="Left" />
+                                <TextBlock x:Name="SelectedConfigurationMetaTextBlock" Text="未选择配置" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
                             </DockPanel>
-                            <TextBlock Text="轮询间隔（秒）" Margin="0,12,0,0" />
-                            <TextBox x:Name="IntervalTextBox" Text="2" />
-                            <TextBlock x:Name="BaselineSummaryTextBlock" Text="尚未保留基线" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
-                    <Border Background="{StaticResource PanelBackgroundElevatedBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,18,0,0">
-                        <StackPanel>
-                            <TextBlock Text="差异概览" FontFamily="Bahnschrift SemiCondensed" FontSize="20" FontWeight="Bold" />
-                            <UniformGrid Columns="3" Margin="0,12,0,0">
+                            <UniformGrid Columns="3" Margin="0,18,0,0">
                                 <StackPanel>
                                     <TextBlock Text="新增" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
                                     <TextBlock x:Name="AddedCountTextBlock" Text="0" FontSize="28" FontWeight="Bold" Foreground="{StaticResource TextBrush}" />
@@ -107,82 +205,89 @@
                                     <TextBlock x:Name="RemovedCountTextBlock" Text="0" FontSize="28" FontWeight="Bold" Foreground="{StaticResource TextBrush}" />
                                 </StackPanel>
                             </UniformGrid>
+
+                            <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,18,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="监控总览" FontFamily="Bahnschrift SemiCondensed" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock x:Name="MultiWatchSummaryTextBlock" Margin="0,10,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
-                </StackPanel>
-            </ScrollViewer>
-        </Border>
-
-        <Grid Grid.Row="1" Grid.Column="2">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="0.95*" />
-                <RowDefinition Height="16" />
-                <RowDefinition Height="1.15*" />
-            </Grid.RowDefinitions>
-
-            <Border Grid.Row="0" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <DockPanel Grid.Row="0" Margin="0,0,0,12">
-                        <TextBlock Text="当前快照树" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
-                        <TextBlock x:Name="SnapshotMetaTextBlock" Text="尚未读取快照" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
-                    </DockPanel>
-                    <TreeView Grid.Row="1" x:Name="SnapshotTreeView" ItemTemplate="{StaticResource TreeItemTemplate}" ItemsSource="{Binding RootItems}">
-                        <TreeView.Resources>
-                            <HierarchicalDataTemplate DataType="{x:Type local:SnapshotTreeItem}" ItemsSource="{Binding Children}" ItemTemplate="{StaticResource TreeItemTemplate}" />
-                        </TreeView.Resources>
-                    </TreeView>
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <DockPanel Grid.Row="0" Margin="0,0,0,12">
-                        <TextBlock Text="变化明细" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
-                        <TextBlock x:Name="DiffMetaTextBlock" Text="保留基线后可查看与当前快照的差异" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
-                    </DockPanel>
-                    <ListView Grid.Row="1" x:Name="DiffListView">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="Padding" Value="8" />
-                                <Setter Property="Margin" Value="0,0,0,6" />
-                                <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
-                                <Setter Property="BorderThickness" Value="1" />
-                                <Setter Property="Background" Value="{StaticResource PanelBackgroundElevatedBrush}" />
-                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ChangeLabel}" Value="新增">
-                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding ChangeLabel}" Value="修改">
-                                        <Setter Property="BorderBrush" Value="{StaticResource WarningBrush}" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding ChangeLabel}" Value="删除">
-                                        <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="变化" Width="70" DisplayMemberBinding="{Binding ChangeLabel}" />
-                                <GridViewColumn Header="类型" Width="70" DisplayMemberBinding="{Binding ItemType}" />
-                                <GridViewColumn Header="路径" Width="360" DisplayMemberBinding="{Binding Path}" />
-                                <GridViewColumn Header="名称" Width="160" DisplayMemberBinding="{Binding Name}" />
-                                <GridViewColumn Header="旧值" Width="220" DisplayMemberBinding="{Binding OldValue}" />
-                                <GridViewColumn Header="新值" Width="220" DisplayMemberBinding="{Binding NewValue}" />
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
-                </Grid>
-            </Border>
+            <Grid Grid.Row="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="0.95*" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="1.15*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                            <TextBlock Text="当前快照树" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
+                            <TextBlock x:Name="SnapshotMetaTextBlock" Text="尚未读取快照" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
+                        </DockPanel>
+                        <TreeView Grid.Row="1" x:Name="SnapshotTreeView" ItemTemplate="{StaticResource TreeItemTemplate}" ItemsSource="{Binding RootItems}">
+                            <TreeView.Resources>
+                                <HierarchicalDataTemplate DataType="{x:Type local:SnapshotTreeItem}" ItemsSource="{Binding Children}" ItemTemplate="{StaticResource TreeItemTemplate}" />
+                            </TreeView.Resources>
+                        </TreeView>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                            <TextBlock Text="变化明细" FontFamily="Bahnschrift SemiCondensed" FontSize="24" FontWeight="Bold" DockPanel.Dock="Left" />
+                            <TextBlock x:Name="DiffMetaTextBlock" Text="保留基线后可查看与当前快照的差异" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
+                        </DockPanel>
+                        <ListView Grid.Row="1" x:Name="DiffListView">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="Padding" Value="8" />
+                                    <Setter Property="Margin" Value="0,0,0,6" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+                                    <Setter Property="BorderThickness" Value="1" />
+                                    <Setter Property="Background" Value="{StaticResource PanelBackgroundElevatedBrush}" />
+                                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ChangeLabel}" Value="新增">
+                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ChangeLabel}" Value="修改">
+                                            <Setter Property="BorderBrush" Value="{StaticResource WarningBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ChangeLabel}" Value="删除">
+                                            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="变化" Width="70" DisplayMemberBinding="{Binding ChangeLabel}" />
+                                    <GridViewColumn Header="类型" Width="70" DisplayMemberBinding="{Binding ItemType}" />
+                                    <GridViewColumn Header="路径" Width="360" DisplayMemberBinding="{Binding Path}" />
+                                    <GridViewColumn Header="名称" Width="160" DisplayMemberBinding="{Binding Name}" />
+                                    <GridViewColumn Header="旧值" Width="220" DisplayMemberBinding="{Binding OldValue}" />
+                                    <GridViewColumn Header="新值" Width="220" DisplayMemberBinding="{Binding NewValue}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </Window>
