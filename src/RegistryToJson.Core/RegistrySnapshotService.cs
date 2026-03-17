@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Text;
 using System.Text.Json;
 
 namespace RegistryToJson.Core;
@@ -119,10 +120,44 @@ public sealed class RegistrySnapshotService
         return value switch
         {
             null => string.Empty,
-            byte[] bytes => Convert.ToHexString(bytes),
+            byte[] bytes => ConvertBinaryValue(bytes),
             string[] items => string.Join(Environment.NewLine, items),
             _ => value.ToString() ?? string.Empty,
         };
+    }
+
+    private static string ConvertBinaryValue(byte[] bytes)
+    {
+        if (bytes.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var utf8Text = Encoding.UTF8.GetString(bytes);
+        var cleanedUtf8 = CleanDecodedText(utf8Text);
+        if (!string.IsNullOrWhiteSpace(cleanedUtf8))
+        {
+            return cleanedUtf8;
+        }
+
+        var unicodeText = Encoding.Unicode.GetString(bytes);
+        var cleanedUnicode = CleanDecodedText(unicodeText);
+        if (!string.IsNullOrWhiteSpace(cleanedUnicode))
+        {
+            return cleanedUnicode;
+        }
+
+        return Encoding.Default.GetString(bytes)
+            .Replace("\0", string.Empty, StringComparison.Ordinal)
+            .Trim();
+    }
+
+    private static string CleanDecodedText(string text)
+    {
+        return text
+            .Replace("\0", string.Empty, StringComparison.Ordinal)
+            .Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Trim();
     }
 
     private static string NormalizeRegistryPath(string registryPath)
