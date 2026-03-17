@@ -103,6 +103,54 @@ public sealed class RegistrySnapshotServiceTests : IDisposable
         Assert.Contains(result.Lines, static line => line.ChangeKind == TextCompareChangeKind.Modified);
     }
 
+    [Fact]
+    public void TryGetNestedCandidate_WithEscapedJsonString_ReturnsDecodedJson()
+    {
+        var line = new TextCompareLine
+        {
+            LeftLineNumber = 1,
+            LeftText = """
+            "payload": "{\"alpha\":1,\"beta\":2}",
+            """,
+            RightLineNumber = 1,
+            RightText = """
+            "payload": "{\"alpha\":1,\"beta\":3}",
+            """,
+            ChangeKind = TextCompareChangeKind.Modified,
+        };
+
+        var nested = _textCompareService.TryGetNestedCandidate(line);
+
+        Assert.NotNull(nested);
+        Assert.Equal("JSON", nested.KindLabel);
+        Assert.Contains("\"alpha\": 1", nested.LeftText);
+        Assert.Contains("\"beta\": 3", nested.RightText);
+    }
+
+    [Fact]
+    public void TryGetNestedCandidate_WithEscapedXmlString_ReturnsDecodedXml()
+    {
+        var line = new TextCompareLine
+        {
+            LeftLineNumber = 1,
+            LeftText = """
+            "payload": "\u003Croot\u003E\u003Citem\u003Eold\u003C/item\u003E\u003C/root\u003E",
+            """,
+            RightLineNumber = 1,
+            RightText = """
+            "payload": "\u003Croot\u003E\u003Citem\u003Enew\u003C/item\u003E\u003C/root\u003E",
+            """,
+            ChangeKind = TextCompareChangeKind.Modified,
+        };
+
+        var nested = _textCompareService.TryGetNestedCandidate(line);
+
+        Assert.NotNull(nested);
+        Assert.Equal("XML", nested.KindLabel);
+        Assert.Contains("<item>old</item>", nested.LeftText);
+        Assert.Contains("<item>new</item>", nested.RightText);
+    }
+
     public void Dispose()
     {
         try

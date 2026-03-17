@@ -1,10 +1,10 @@
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Text;
 using RegistryToJson.Core;
 
 namespace RegistryToJson.Gui;
@@ -12,6 +12,9 @@ namespace RegistryToJson.Gui;
 public partial class ZoomWindow : Window
 {
     private const int MaxPreviewLength = 240;
+    private readonly Stack<CompareViewState> _compareHistory = new();
+    private TextCompareService? _compareService;
+    private CompareViewState? _currentCompareState;
 
     public ZoomWindow()
     {
@@ -38,31 +41,64 @@ public partial class ZoomWindow : Window
 
     public async Task ShowDiffCompareAsync(DiffListItem item, TextCompareService compareService, string title, string description, string meta)
     {
-        Title = title;
-        WindowTitleTextBlock.Text = title;
-        WindowDescriptionTextBlock.Text = description;
-        WindowMetaTextBlock.Text = meta;
-        ZoomContentHost.Content = WrapInPanel(CreateLoadingView(item));
+        _compareService = compareService;
+        _compareHistory.Clear();
+        _currentCompareState = null;
+
+        await LoadCompareStateAsync(new CompareViewState(
+            item,
+            title,
+            description,
+            meta,
+            "根层",
+            pushCurrentToHistory: false,
+            loadingText: "正在生成左右对照视图..."));
+    }
+
+    private async Task LoadCompareStateAsync(CompareViewState state)
+    {
+        if (_compareService is null)
+        {
+            return;
+        }
+
+        UpdateWindowHeader(state.Title, state.Description, state.Meta);
+        ZoomContentHost.Content = WrapInPanel(CreateLoadingView(state.Item, state.LoadingText));
 
         await Task.Yield();
 
         try
         {
-            var compareResult = await Task.Run(() => compareService.Compare(item.OldValue, item.NewValue));
-            ZoomContentHost.Content = WrapInPanel(CreateCompareView(item, compareResult));
+            var compareResult = await Task.Run(() => _compareService.Compare(state.Item.OldValue, state.Item.NewValue));
+            if (state.PushCurrentToHistory && _currentCompareState is not null)
+            {
+                _compareHistory.Push(_currentCompareState);
+            }
+
+            var resolvedState = state with { Result = compareResult };
+            _currentCompareState = resolvedState;
+            ZoomContentHost.Content = WrapInPanel(CreateCompareView(resolvedState, _compareService));
         }
         catch (Exception ex)
         {
-            ZoomContentHost.Content = WrapInPanel(CreateErrorView(item, ex));
+            ZoomContentHost.Content = WrapInPanel(CreateErrorView(state.Item, ex));
         }
+    }
+
+    private void UpdateWindowHeader(string title, string description, string meta)
+    {
+        Title = title;
+        WindowTitleTextBlock.Text = title;
+        WindowDescriptionTextBlock.Text = description;
+        WindowMetaTextBlock.Text = meta;
     }
 
     private static Border WrapInPanel(UIElement content)
     {
         return new Border
         {
-            Background = (System.Windows.Media.Brush)Application.Current.FindResource("PanelBackgroundBrush"),
-            BorderBrush = (System.Windows.Media.Brush)Application.Current.FindResource("PanelBorderBrush"),
+            Background = (Brush)Application.Current.FindResource("PanelBackgroundBrush"),
+            BorderBrush = (Brush)Application.Current.FindResource("PanelBorderBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(18),
             Padding = new Thickness(18),
@@ -72,7 +108,7 @@ public partial class ZoomWindow : Window
 
     private static TextBox CreateReadonlyTextBox(string content)
     {
-        var textBox = new TextBox
+        return new TextBox
         {
             Text = content,
             IsReadOnly = true,
@@ -90,8 +126,6 @@ public partial class ZoomWindow : Window
             Foreground = (Brush)Application.Current.FindResource("TextBrush"),
             ContextMenu = CreateContextMenu(),
         };
-
-        return textBox;
     }
 
     private static ContextMenu CreateContextMenu()
@@ -102,7 +136,7 @@ public partial class ZoomWindow : Window
         return contextMenu;
     }
 
-    private static FrameworkElement CreateLoadingView(DiffListItem item)
+    private static FrameworkElement CreateLoadingView(DiffListItem item, string loadingText)
     {
         var panel = new StackPanel();
         panel.Children.Add(CreateSummaryText($"变化: {item.ChangeLabel} | 类型: {item.ItemType}"));
@@ -110,7 +144,7 @@ public partial class ZoomWindow : Window
         panel.Children.Add(CreateSummaryText($"名称: {item.Name}"));
         panel.Children.Add(new TextBlock
         {
-            Text = "正在生成左右对照视图...",
+            Text = loadingText,
             Margin = new Thickness(0, 18, 0, 10),
             FontSize = 16,
             FontWeight = FontWeights.SemiBold,
@@ -125,7 +159,7 @@ public partial class ZoomWindow : Window
         return panel;
     }
 
-    private static FrameworkElement CreateCompareView(DiffListItem item, TextCompareResult compareResult)
+    private FrameworkElement CreateCompareView(CompareViewState state, TextCompareService compareService)
     {
         var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -135,28 +169,123 @@ public partial class ZoomWindow : Window
         {
             Margin = new Thickness(0, 0, 0, 14),
         };
-        summaryPanel.Children.Add(CreateSummaryText($"变化: {item.ChangeLabel} | 类型: {item.ItemType}"));
-        summaryPanel.Children.Add(CreateSummaryText($"路径: {item.Path}"));
-        summaryPanel.Children.Add(CreateSummaryText($"名称: {item.Name}"));
-        summaryPanel.Children.Add(CreateSummaryText($"展示行数: {compareResult.Lines.Count}"));
-        if (NeedsPreviewNotice(item, compareResult))
+        summaryPanel.Children.Add(CreateSummaryText($"变化: {state.Item.ChangeLabel} | 类型: {state.Item.ItemType}"));
+        summaryPanel.Children.Add(CreateSummaryText($"路径: {state.Item.Path}"));
+        summaryPanel.Children.Add(CreateSummaryText($"名称: {state.Item.Name}"));
+        summaryPanel.Children.Add(CreateSummaryText($"当前层级: {state.LevelLabel}"));
+        summaryPanel.Children.Add(CreateSummaryText($"展示行数: {state.Result?.Lines.Count ?? 0}"));
+        summaryPanel.Children.Add(CreateSummaryText($"变化行数: {state.ChangeCount}"));
+        summaryPanel.Children.Add(CreateSummaryText("操作: 黄色/红色/青色代表变化，蓝色代表可继续下钻；右侧迷你地图可快速跳到变化位。"));
+
+        if (NeedsPreviewNotice(state.Item, state.Result))
         {
-            summaryPanel.Children.Add(CreateSummaryText($"说明: 超长文本已在表格中截断预览，使用下方按钮可复制完整旧值/新值。"));
+            summaryPanel.Children.Add(CreateSummaryText("说明: 超长文本已在表格中截断预览，使用下方按钮可复制完整旧值/新值。"));
         }
 
         var actionPanel = new WrapPanel
         {
             Margin = new Thickness(0, 10, 0, 0),
         };
-        actionPanel.Children.Add(CreateCopyButton("复制旧值全文", string.IsNullOrEmpty(item.OldValue) ? "(空)" : item.OldValue));
-        actionPanel.Children.Add(CreateCopyButton("复制新值全文", string.IsNullOrEmpty(item.NewValue) ? "(空)" : item.NewValue));
+        if (_compareHistory.Count > 0)
+        {
+            actionPanel.Children.Add(CreateActionButton("返回上一级", async (_, _) => await NavigateBackAsync()));
+        }
+
+        actionPanel.Children.Add(CreateActionButton("上一处变化", (_, _) => MoveToChange(state, -1)));
+        actionPanel.Children.Add(CreateActionButton("下一处变化", (_, _) => MoveToChange(state, 1)));
+        actionPanel.Children.Add(CreateActionButton("复制旧值全文", (_, _) => Clipboard.SetText(string.IsNullOrEmpty(state.Item.OldValue) ? "(空)" : state.Item.OldValue)));
+        actionPanel.Children.Add(CreateActionButton("复制新值全文", (_, _) => Clipboard.SetText(string.IsNullOrEmpty(state.Item.NewValue) ? "(空)" : state.Item.NewValue)));
         summaryPanel.Children.Add(actionPanel);
         layout.Children.Add(summaryPanel);
 
-        var grid = CreateCompareGrid(compareResult.Lines);
-        Grid.SetRow(grid, 1);
-        layout.Children.Add(grid);
+        var compareHost = CreateCompareHost(state, compareService);
+        Grid.SetRow(compareHost, 1);
+        layout.Children.Add(compareHost);
         return layout;
+    }
+
+    private FrameworkElement CreateCompareHost(CompareViewState state, TextCompareService compareService)
+    {
+        var host = new Grid();
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var grid = CreateCompareGrid(state, compareService);
+        state.Grid = grid;
+        host.Children.Add(grid);
+
+        var miniMap = CreateMiniMap(state);
+        Grid.SetColumn(miniMap, 1);
+        host.Children.Add(miniMap);
+        return host;
+    }
+
+    private FrameworkElement CreateMiniMap(CompareViewState state)
+    {
+        var miniMapBorder = new Border
+        {
+            Width = 28,
+            Margin = new Thickness(10, 0, 0, 0),
+            Background = (Brush)Application.Current.FindResource("ControlBackgroundBrush"),
+            BorderBrush = (Brush)Application.Current.FindResource("PanelBorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(4),
+        };
+
+        var canvas = new Canvas
+        {
+            Width = 18,
+            Background = Brushes.Transparent,
+        };
+
+        var totalRows = Math.Max(1, state.Rows.Count);
+        const double mapHeight = 560;
+        canvas.Height = mapHeight;
+
+        if (state.ChangeIndices.Count == 0)
+        {
+            var emptyText = new TextBlock
+            {
+                Text = "0",
+                Foreground = (Brush)Application.Current.FindResource("MutedTextBrush"),
+                FontSize = 10,
+                Width = 18,
+                TextAlignment = TextAlignment.Center,
+            };
+            Canvas.SetTop(emptyText, 4);
+            canvas.Children.Add(emptyText);
+        }
+        else
+        {
+            foreach (var changeIndex in state.ChangeIndices)
+            {
+                var row = state.Rows[changeIndex];
+                var marker = new Button
+                {
+                    Width = 10,
+                    Height = 8,
+                    Padding = new Thickness(0),
+                    Margin = new Thickness(0),
+                    BorderThickness = new Thickness(0),
+                    Background = GetMiniMapBrush(row.ChangeKind, row.CanDrillDown),
+                    ToolTip = $"第 {changeIndex + 1} 行: {row.ChangeKindLabel}",
+                    Tag = changeIndex,
+                    Cursor = Cursors.Hand,
+                };
+                marker.Click += (_, _) => ScrollToRow(state, changeIndex);
+
+                var top = totalRows == 1
+                    ? 0d
+                    : Math.Round((mapHeight - 8) * (changeIndex / (double)(totalRows - 1)));
+                Canvas.SetTop(marker, top);
+                Canvas.SetLeft(marker, 4);
+                canvas.Children.Add(marker);
+            }
+        }
+
+        miniMapBorder.Child = canvas;
+        return miniMapBorder;
     }
 
     private static FrameworkElement CreateErrorView(DiffListItem item, Exception ex)
@@ -188,7 +317,7 @@ public partial class ZoomWindow : Window
         };
     }
 
-    private static Button CreateCopyButton(string label, string content)
+    private static Button CreateActionButton(string label, RoutedEventHandler onClick)
     {
         var button = new Button
         {
@@ -196,13 +325,20 @@ public partial class ZoomWindow : Window
             Margin = new Thickness(0, 0, 8, 8),
             Padding = new Thickness(16, 8, 16, 8),
         };
-        button.Click += (_, _) => Clipboard.SetText(content);
+        button.Click += onClick;
         return button;
     }
 
-    private static DataGrid CreateCompareGrid(IReadOnlyList<TextCompareLine> lines)
+    private DataGrid CreateCompareGrid(CompareViewState state, TextCompareService compareService)
     {
-        var rows = lines.Select(CreateCompareRowViewModel).ToList();
+        var rows = (state.Result?.Lines ?? []).Select(line => CreateCompareRowViewModel(line, state, compareService)).ToList();
+        state.Rows = rows;
+        state.ChangeIndices = rows
+            .Select((row, index) => (row, index))
+            .Where(static pair => pair.row.IsChanged || pair.row.CanDrillDown)
+            .Select(static pair => pair.index)
+            .ToList();
+
         var grid = new DataGrid
         {
             AutoGenerateColumns = false,
@@ -211,7 +347,7 @@ public partial class ZoomWindow : Window
             CanUserDeleteRows = false,
             CanUserReorderColumns = false,
             CanUserResizeRows = false,
-            SelectionMode = DataGridSelectionMode.Extended,
+            SelectionMode = DataGridSelectionMode.Single,
             HeadersVisibility = DataGridHeadersVisibility.Column,
             RowHeaderWidth = 0,
             GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
@@ -233,6 +369,7 @@ public partial class ZoomWindow : Window
             ItemsSource = rows,
         };
 
+        grid.MouseDoubleClick += CompareGrid_MouseDoubleClick;
         VirtualizingPanel.SetIsVirtualizing(grid, true);
         VirtualizingPanel.SetVirtualizationMode(grid, VirtualizationMode.Recycling);
         ScrollViewer.SetCanContentScroll(grid, true);
@@ -244,6 +381,100 @@ public partial class ZoomWindow : Window
         grid.Columns.Add(CreateNumberColumn("新行", nameof(CompareRowViewModel.RightLineNumber), 68));
         grid.Columns.Add(CreateTextColumn("新值", nameof(CompareRowViewModel.RightPreview), nameof(CompareRowViewModel.RightBackground)));
         return grid;
+    }
+
+    private async void CompareGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_compareService is null || sender is not DataGrid grid || grid.SelectedItem is not CompareRowViewModel row || row.NestedCandidate is null)
+        {
+            return;
+        }
+
+        var nestedState = CreateNestedState(row);
+        await LoadCompareStateAsync(nestedState);
+    }
+
+    private async Task NavigateBackAsync()
+    {
+        if (_compareHistory.Count == 0)
+        {
+            return;
+        }
+
+        var previousState = _compareHistory.Pop();
+        _currentCompareState = previousState;
+        UpdateWindowHeader(previousState.Title, previousState.Description, previousState.Meta);
+        ZoomContentHost.Content = WrapInPanel(CreateCompareView(previousState, _compareService!));
+        await Task.CompletedTask;
+    }
+
+    private void MoveToChange(CompareViewState state, int direction)
+    {
+        if (state.Grid is null || state.ChangeIndices.Count == 0)
+        {
+            return;
+        }
+
+        var currentIndex = state.Grid.SelectedIndex;
+        int targetIndex;
+
+        if (currentIndex < 0)
+        {
+            targetIndex = direction >= 0 ? state.ChangeIndices[0] : state.ChangeIndices[^1];
+        }
+        else if (direction >= 0)
+        {
+            targetIndex = state.ChangeIndices.FirstOrDefault(index => index > currentIndex, state.ChangeIndices[0]);
+        }
+        else
+        {
+            targetIndex = state.ChangeIndices.LastOrDefault(index => index < currentIndex, state.ChangeIndices[^1]);
+        }
+
+        ScrollToRow(state, targetIndex);
+    }
+
+    private void ScrollToRow(CompareViewState state, int rowIndex)
+    {
+        if (state.Grid is null || rowIndex < 0 || rowIndex >= state.Rows.Count)
+        {
+            return;
+        }
+
+        state.Grid.SelectedIndex = rowIndex;
+        state.Grid.ScrollIntoView(state.Rows[rowIndex]);
+        state.Grid.Focus();
+    }
+
+    private static CompareViewState CreateNestedState(CompareRowViewModel row)
+    {
+        var nested = row.NestedCandidate!;
+        var depth = row.ParentState.Depth + 1;
+        var title = $"{row.ParentState.BaseTitle} | 嵌套对照";
+        var description = $"{nested.KindLabel} 嵌套内容，第 {depth + 1} 层 compare。";
+        var meta = $"{row.ParentState.Meta} | 嵌套行 {row.LeftLineNumber}/{row.RightLineNumber}".Trim();
+        var item = new DiffListItem
+        {
+            ChangeLabel = "嵌套",
+            ItemType = nested.KindLabel,
+            Path = row.ParentState.Item.Path,
+            Name = $"{row.ParentState.Item.Name} -> 第 {row.LeftLineNumber}/{row.RightLineNumber} 行",
+            OldValue = nested.LeftText,
+            NewValue = nested.RightText,
+        };
+
+        return new CompareViewState(
+            item,
+            title,
+            description,
+            meta,
+            $"第 {depth + 1} 层",
+            pushCurrentToHistory: true,
+            loadingText: $"正在进入第 {depth + 1} 层嵌套 compare...")
+        {
+            Depth = depth,
+            BaseTitle = row.ParentState.BaseTitle,
+        };
     }
 
     private static DataGridTextColumn CreateNumberColumn(string header, string bindingPath, double width)
@@ -342,6 +573,7 @@ public partial class ZoomWindow : Window
         textFactory.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
         textFactory.SetValue(TextBlock.ForegroundProperty, (Brush)Application.Current.FindResource("TextBrush"));
         textFactory.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+        textFactory.SetValue(TextBlock.FontWeightProperty, FontWeights.Medium);
         borderFactory.AppendChild(textFactory);
 
         return new DataTemplate
@@ -350,16 +582,53 @@ public partial class ZoomWindow : Window
         };
     }
 
-    private static CompareRowViewModel CreateCompareRowViewModel(TextCompareLine line)
+    private static CompareRowViewModel CreateCompareRowViewModel(TextCompareLine line, CompareViewState parentState, TextCompareService compareService)
     {
+        var nestedCandidate = compareService.TryGetNestedCandidate(line);
+        var isChanged = line.ChangeKind != TextCompareChangeKind.Unchanged;
+        var leftBackground = nestedCandidate is not null
+            ? CreateTintBrush("#66355F85")
+            : GetLeftBackground(line.ChangeKind);
+        var rightBackground = nestedCandidate is not null
+            ? CreateTintBrush("#66355F85")
+            : GetRightBackground(line.ChangeKind);
+
         return new CompareRowViewModel
         {
             LeftLineNumber = line.LeftLineNumber?.ToString() ?? string.Empty,
-            LeftPreview = ToPreview(line.LeftText),
+            LeftPreview = nestedCandidate is null ? ToPreview(line.LeftText) : $"[双击继续下钻] {ToPreview(line.LeftText)}",
             RightLineNumber = line.RightLineNumber?.ToString() ?? string.Empty,
-            RightPreview = ToPreview(line.RightText),
-            LeftBackground = GetLeftBackground(line.ChangeKind),
-            RightBackground = GetRightBackground(line.ChangeKind),
+            RightPreview = nestedCandidate is null ? ToPreview(line.RightText) : $"[双击继续下钻] {ToPreview(line.RightText)}",
+            LeftBackground = leftBackground,
+            RightBackground = rightBackground,
+            NestedCandidate = nestedCandidate,
+            ParentState = parentState,
+            IsChanged = isChanged,
+            CanDrillDown = nestedCandidate is not null,
+            ChangeKind = line.ChangeKind,
+            ChangeKindLabel = nestedCandidate is not null ? $"可下钻 {nestedCandidate.KindLabel}" : line.ChangeKind switch
+            {
+                TextCompareChangeKind.Modified => "修改",
+                TextCompareChangeKind.Added => "新增",
+                TextCompareChangeKind.Removed => "删除",
+                _ => "未变化",
+            },
+        };
+    }
+
+    private static Brush GetMiniMapBrush(TextCompareChangeKind changeKind, bool canDrillDown)
+    {
+        if (canDrillDown)
+        {
+            return (Brush)Application.Current.FindResource("AccentBrush");
+        }
+
+        return changeKind switch
+        {
+            TextCompareChangeKind.Modified => (Brush)Application.Current.FindResource("WarningBrush"),
+            TextCompareChangeKind.Added => (Brush)Application.Current.FindResource("AccentBrush"),
+            TextCompareChangeKind.Removed => (Brush)Application.Current.FindResource("DangerBrush"),
+            _ => (Brush)Application.Current.FindResource("MutedTextBrush"),
         };
     }
 
@@ -375,19 +644,19 @@ public partial class ZoomWindow : Window
             : $"{text[..MaxPreviewLength]} ... ({text.Length} chars)";
     }
 
-    private static bool NeedsPreviewNotice(DiffListItem item, TextCompareResult compareResult)
+    private static bool NeedsPreviewNotice(DiffListItem item, TextCompareResult? compareResult)
     {
         return (item.OldValue?.Length ?? 0) > MaxPreviewLength
             || (item.NewValue?.Length ?? 0) > MaxPreviewLength
-            || compareResult.Lines.Any(static line => line.LeftText.Length > MaxPreviewLength || line.RightText.Length > MaxPreviewLength);
+            || (compareResult?.Lines.Any(static line => line.LeftText.Length > MaxPreviewLength || line.RightText.Length > MaxPreviewLength) ?? false);
     }
 
     private static Brush GetLeftBackground(TextCompareChangeKind kind)
     {
         return kind switch
         {
-            TextCompareChangeKind.Removed => CreateTintBrush("#4DFF8585"),
-            TextCompareChangeKind.Modified => CreateTintBrush("#4DFFD166"),
+            TextCompareChangeKind.Removed => CreateTintBrush("#55FF8585"),
+            TextCompareChangeKind.Modified => CreateTintBrush("#66FFD166"),
             _ => Brushes.Transparent,
         };
     }
@@ -396,8 +665,8 @@ public partial class ZoomWindow : Window
     {
         return kind switch
         {
-            TextCompareChangeKind.Added => CreateTintBrush("#4D35E1CF"),
-            TextCompareChangeKind.Modified => CreateTintBrush("#4DFFD166"),
+            TextCompareChangeKind.Added => CreateTintBrush("#5535E1CF"),
+            TextCompareChangeKind.Modified => CreateTintBrush("#66FFD166"),
             _ => Brushes.Transparent,
         };
     }
@@ -467,5 +736,47 @@ public partial class ZoomWindow : Window
         public required Brush LeftBackground { get; init; }
 
         public required Brush RightBackground { get; init; }
+
+        public TextCompareNestedCandidate? NestedCandidate { get; init; }
+
+        public required CompareViewState ParentState { get; init; }
+
+        public required bool IsChanged { get; init; }
+
+        public required bool CanDrillDown { get; init; }
+
+        public required TextCompareChangeKind ChangeKind { get; init; }
+
+        public required string ChangeKindLabel { get; init; }
+    }
+
+    private sealed record CompareViewState(
+        DiffListItem Item,
+        string Title,
+        string Description,
+        string Meta,
+        string LevelLabel,
+        bool pushCurrentToHistory,
+        string loadingText)
+    {
+        public TextCompareResult? Result { get; init; }
+
+        public int Depth { get; init; }
+
+        public string BaseTitle { get; init; } = Title.Contains('|', StringComparison.Ordinal)
+            ? Title[..Title.IndexOf('|', StringComparison.Ordinal)].TrimEnd()
+            : Title;
+
+        public bool PushCurrentToHistory => pushCurrentToHistory;
+
+        public string LoadingText => loadingText;
+
+        public DataGrid? Grid { get; set; }
+
+        public List<CompareRowViewModel> Rows { get; set; } = [];
+
+        public List<int> ChangeIndices { get; set; } = [];
+
+        public int ChangeCount => ChangeIndices.Count;
     }
 }

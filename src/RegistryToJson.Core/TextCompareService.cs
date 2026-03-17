@@ -34,6 +34,15 @@ public sealed class TextCompareResult
     public List<TextCompareLine> Lines { get; init; } = [];
 }
 
+public sealed class TextCompareNestedCandidate
+{
+    public required string LeftText { get; init; }
+
+    public required string RightText { get; init; }
+
+    public required string KindLabel { get; init; }
+}
+
 public sealed class TextCompareService
 {
     private const int MaxLinesForFullDiff = 400;
@@ -56,6 +65,24 @@ public sealed class TextCompareService
             LeftFormattedText = leftFormatted,
             RightFormattedText = rightFormatted,
             Lines = lines,
+        };
+    }
+
+    public TextCompareNestedCandidate? TryGetNestedCandidate(TextCompareLine line)
+    {
+        var hasLeft = TryExtractNestedContent(line.LeftText, out var leftText, out var leftKind);
+        var hasRight = TryExtractNestedContent(line.RightText, out var rightText, out var rightKind);
+
+        if (!hasLeft && !hasRight)
+        {
+            return null;
+        }
+
+        return new TextCompareNestedCandidate
+        {
+            LeftText = hasLeft ? leftText : string.Empty,
+            RightText = hasRight ? rightText : string.Empty,
+            KindLabel = hasLeft ? leftKind : rightKind,
         };
     }
 
@@ -399,6 +426,110 @@ public sealed class TextCompareService
         }
 
         return normalized;
+    }
+
+    private static bool TryExtractNestedContent(string? text, out string nestedText, out string kindLabel)
+    {
+        nestedText = string.Empty;
+        kindLabel = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (!TryExtractJsonStringLiteral(text, out var decodedText))
+        {
+            return false;
+        }
+
+        if (!TryNormalizeNestedContent(decodedText, out nestedText, out kindLabel))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryExtractJsonStringLiteral(string text, out string decodedText)
+    {
+        decodedText = string.Empty;
+
+        foreach (var candidate in EnumerateJsonStringCandidates(text))
+        {
+            try
+            {
+                var value = JsonSerializer.Deserialize<string>(candidate);
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                decodedText = value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+                return true;
+            }
+            catch
+            {
+                // Ignore invalid JSON string candidates and continue probing.
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> EnumerateJsonStringCandidates(string text)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.EndsWith(",", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^1].TrimEnd();
+        }
+
+        if (trimmed.StartsWith('"') && trimmed.EndsWith('"'))
+        {
+            yield return trimmed;
+        }
+
+        var separatorIndex = trimmed.IndexOf(':');
+        if (separatorIndex <= 0 || separatorIndex >= trimmed.Length - 1)
+        {
+            yield break;
+        }
+
+        var valuePart = trimmed[(separatorIndex + 1)..].Trim();
+        if (valuePart.StartsWith('"') && valuePart.EndsWith('"'))
+        {
+            yield return valuePart;
+        }
+    }
+
+    private static bool TryNormalizeNestedContent(string text, out string nestedText, out string kindLabel)
+    {
+        nestedText = text;
+        kindLabel = string.Empty;
+
+        if (TryFormatJson(text, out var formattedJson))
+        {
+            nestedText = formattedJson;
+            kindLabel = "JSON";
+            return true;
+        }
+
+        if (TryFormatXml(text, out var formattedXml))
+        {
+            nestedText = formattedXml;
+            kindLabel = "XML";
+            return true;
+        }
+
+        if (text.Contains('\n', StringComparison.Ordinal))
+        {
+            nestedText = text;
+            kindLabel = "多行文本";
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryFormatJson(string text, out string formatted)
