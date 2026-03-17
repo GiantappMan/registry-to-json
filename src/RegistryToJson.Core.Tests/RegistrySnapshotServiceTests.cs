@@ -151,6 +151,28 @@ public sealed class RegistrySnapshotServiceTests : IDisposable
         Assert.Contains("<item>new</item>", nested.RightText);
     }
 
+    [Fact]
+    public void TryGetNestedCandidate_WithSameNestedJson_DoesNotMarkNestedDiff()
+    {
+        var line = new TextCompareLine
+        {
+            LeftLineNumber = 1,
+            LeftText = """
+            "payload": "{\"alpha\":1,\"beta\":2}",
+            """,
+            RightLineNumber = 1,
+            RightText = """
+            "payload": "{\"alpha\":1,\"beta\":2}",
+            """,
+            ChangeKind = TextCompareChangeKind.Unchanged,
+        };
+
+        var nested = _textCompareService.TryGetNestedCandidate(line);
+
+        Assert.NotNull(nested);
+        Assert.False(nested.HasNestedDiff);
+    }
+
     public void Dispose()
     {
         try

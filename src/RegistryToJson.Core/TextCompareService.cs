@@ -41,6 +41,8 @@ public sealed class TextCompareNestedCandidate
     public required string RightText { get; init; }
 
     public required string KindLabel { get; init; }
+
+    public required bool HasNestedDiff { get; init; }
 }
 
 public sealed class TextCompareService
@@ -83,7 +85,14 @@ public sealed class TextCompareService
             LeftText = hasLeft ? leftText : string.Empty,
             RightText = hasRight ? rightText : string.Empty,
             KindLabel = hasLeft ? leftKind : rightKind,
+            HasNestedDiff = HasMeaningfulDiff(hasLeft ? leftText : string.Empty, hasRight ? rightText : string.Empty),
         };
+    }
+
+    private bool HasMeaningfulDiff(string leftText, string rightText)
+    {
+        var nestedCompare = Compare(leftText, rightText);
+        return nestedCompare.Lines.Any(static line => line.ChangeKind != TextCompareChangeKind.Unchanged);
     }
 
     private static List<TextCompareLine> BuildAlignedLines(IReadOnlyList<string> leftLines, IReadOnlyList<string> rightLines)
