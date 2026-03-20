@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using Xunit;
+using System.Text.Json;
 
 namespace RegistryToJson.Core.Tests;
 
@@ -68,6 +69,227 @@ public sealed class RegistrySnapshotServiceTests : IDisposable
         Assert.Equal("TargetValue", entry.Name);
         Assert.Equal("before", entry.OldValue);
         Assert.Null(entry.NewValue);
+    }
+
+    [Fact]
+    public void ExportSnapshot_WritesIndentedJson()
+    {
+        var snapshot = new RegistrySnapshot
+        {
+            SourcePath = _testKeyPath,
+            CapturedAtUtc = DateTime.UtcNow,
+            Root = new RegistryNodeSnapshot
+            {
+                Name = "Root",
+                FullPath = _testKeyPath,
+                Values =
+                [
+                    new RegistryValueSnapshot
+                    {
+                        Name = "Alpha",
+                        Kind = "String",
+                        Data = "one",
+                    },
+                ],
+                Children =
+                [
+                    new RegistryNodeSnapshot
+                    {
+                        Name = "Child",
+                        FullPath = $@"{_testKeyPath}\Child",
+                        Values =
+                        [
+                            new RegistryValueSnapshot
+                            {
+                                Name = "Beta",
+                                Kind = "String",
+                                Data = "two",
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+        var outputPath = Path.Combine(Path.GetTempPath(), $"registry-export-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            _snapshotService.ExportSnapshot(snapshot, outputPath);
+
+            var json = File.ReadAllText(outputPath);
+            Assert.Contains(Environment.NewLine, json);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.Equal("one", document.RootElement.GetProperty("Alpha").GetString());
+            Assert.Equal("two", document.RootElement.GetProperty("Child").GetProperty("Beta").GetString());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ExportSnapshot_WithNestedJsonString_ExpandsIntoJsonObject()
+    {
+        var snapshot = new RegistrySnapshot
+        {
+            SourcePath = _testKeyPath,
+            CapturedAtUtc = DateTime.UtcNow,
+            Root = new RegistryNodeSnapshot
+            {
+                Name = "Root",
+                FullPath = _testKeyPath,
+                Values =
+                [
+                    new RegistryValueSnapshot
+                    {
+                        Name = "Payload",
+                        Kind = "String",
+                        Data = """{"alpha":1,"beta":{"enabled":true},"items":[1,"two",false]}""",
+                    },
+                ],
+            },
+        };
+        var outputPath = Path.Combine(Path.GetTempPath(), $"registry-export-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            _snapshotService.ExportSnapshot(snapshot, outputPath);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(outputPath));
+            var payload = document.RootElement.GetProperty("Payload");
+            Assert.Equal(JsonValueKind.Object, payload.ValueKind);
+            Assert.Equal(1, payload.GetProperty("alpha").GetInt32());
+            Assert.True(payload.GetProperty("beta").GetProperty("enabled").GetBoolean());
+            Assert.Equal("two", payload.GetProperty("items")[1].GetString());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ExportSnapshot_WithPlainString_KeepsOriginalText()
+    {
+        var snapshot = new RegistrySnapshot
+        {
+            SourcePath = _testKeyPath,
+            CapturedAtUtc = DateTime.UtcNow,
+            Root = new RegistryNodeSnapshot
+            {
+                Name = "Root",
+                FullPath = _testKeyPath,
+                Values =
+                [
+                    new RegistryValueSnapshot
+                    {
+                        Name = "PlainText",
+                        Kind = "String",
+                        Data = "not-json-content",
+                    },
+                ],
+            },
+        };
+        var outputPath = Path.Combine(Path.GetTempPath(), $"registry-export-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            _snapshotService.ExportSnapshot(snapshot, outputPath);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(outputPath));
+            Assert.Equal("not-json-content", document.RootElement.GetProperty("PlainText").GetString());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ExportSnapshot_WithNestedJsonStringFields_RecursivelyExpandsNestedJson()
+    {
+        var snapshot = new RegistrySnapshot
+        {
+            SourcePath = _testKeyPath,
+            CapturedAtUtc = DateTime.UtcNow,
+            Root = new RegistryNodeSnapshot
+            {
+                Name = "Root",
+                FullPath = _testKeyPath,
+                Values =
+                [
+                    new RegistryValueSnapshot
+                    {
+                        Name = "Payload",
+                        Kind = "String",
+                        Data = """{"uiSaveData":"{\"currWindowResolutionIndex\":4}","nestedList":["{\"enabled\":true}"]}""",
+                    },
+                ],
+            },
+        };
+        var outputPath = Path.Combine(Path.GetTempPath(), $"registry-export-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            _snapshotService.ExportSnapshot(snapshot, outputPath);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(outputPath));
+            var payload = document.RootElement.GetProperty("Payload");
+            Assert.Equal(4, payload.GetProperty("uiSaveData").GetProperty("currWindowResolutionIndex").GetInt32());
+            Assert.True(payload.GetProperty("nestedList")[0].GetProperty("enabled").GetBoolean());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ExportSnapshot_WithXmlString_ExportsReadableXmlLines()
+    {
+        var snapshot = new RegistrySnapshot
+        {
+            SourcePath = _testKeyPath,
+            CapturedAtUtc = DateTime.UtcNow,
+            Root = new RegistryNodeSnapshot
+            {
+                Name = "Root",
+                FullPath = _testKeyPath,
+                Values =
+                [
+                    new RegistryValueSnapshot
+                    {
+                        Name = "XmlPayload",
+                        Kind = "String",
+                        Data = "<root><item>value</item></root>",
+                    },
+                ],
+            },
+        };
+        var outputPath = Path.Combine(Path.GetTempPath(), $"registry-export-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            _snapshotService.ExportSnapshot(snapshot, outputPath);
+
+            var json = File.ReadAllText(outputPath);
+            Assert.Contains("<root>", json);
+            Assert.DoesNotContain("\\u003C", json, StringComparison.OrdinalIgnoreCase);
+
+            using var document = JsonDocument.Parse(json);
+            var xmlPayload = document.RootElement.GetProperty("XmlPayload");
+            Assert.Equal("xml", xmlPayload.GetProperty("_format").GetString());
+            var lines = xmlPayload.GetProperty("_lines");
+            Assert.Equal(JsonValueKind.Array, lines.ValueKind);
+            Assert.Contains(lines.EnumerateArray().Select(static item => item.GetString()), static line => line == "<root>");
+            Assert.Contains(lines.EnumerateArray().Select(static item => item.GetString()), static line => line == "  <item>value</item>");
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
     }
 
     [Fact]

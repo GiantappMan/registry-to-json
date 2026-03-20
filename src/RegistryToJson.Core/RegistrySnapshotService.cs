@@ -1,11 +1,19 @@
 using Microsoft.Win32;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Xml.Linq;
 
 namespace RegistryToJson.Core;
 
 public sealed class RegistrySnapshotService
 {
+    private static readonly JsonSerializerOptions ExportJsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     public RegistrySnapshot Capture(string registryPath)
     {
         if (string.IsNullOrWhiteSpace(registryPath))
@@ -36,9 +44,20 @@ public sealed class RegistrySnapshotService
     {
         ArgumentNullException.ThrowIfNull(request);
         var snapshot = Capture(request.RegistryPath);
+        ExportSnapshot(snapshot, request.OutputFilePath);
+    }
+
+    public void ExportSnapshot(RegistrySnapshot snapshot, string outputFilePath)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (string.IsNullOrWhiteSpace(outputFilePath))
+        {
+            throw new ArgumentException("Output file path is required.", nameof(outputFilePath));
+        }
+
         var exportObject = ToExportObject(snapshot.Root);
-        var json = JsonSerializer.Serialize(exportObject, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(request.OutputFilePath, json);
+        var json = JsonSerializer.Serialize(exportObject, ExportJsonOptions);
+        File.WriteAllText(outputFilePath, json);
     }
 
     private static RegistryKey? OpenRegistryKey(string registryPath, out string normalizedPath)
@@ -142,7 +161,7 @@ public sealed class RegistrySnapshotService
         var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in node.Values)
         {
-            result[value.Name] = value.Data;
+            result[value.Name] = ConvertExportValue(value.Data);
         }
 
         foreach (var child in node.Children)
@@ -151,6 +170,101 @@ public sealed class RegistrySnapshotService
         }
 
         return result;
+    }
+
+    private static object? ConvertExportValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var trimmed = value.Trim();
+        if (LooksLikeJsonContainer(trimmed) && TryParseNestedJson(trimmed, out var parsedValue))
+        {
+            return parsedValue;
+        }
+
+        if (LooksLikeXml(trimmed) && TryFormatXml(trimmed, out var formattedXml))
+        {
+            return CreateXmlExportObject(formattedXml);
+        }
+
+        return value;
+    }
+
+    private static bool LooksLikeJsonContainer(string value)
+    {
+        return (value.StartsWith('{') && value.EndsWith('}'))
+            || (value.StartsWith('[') && value.EndsWith(']'));
+    }
+
+    private static bool LooksLikeXml(string value)
+    {
+        return value.StartsWith('<') && value.EndsWith('>');
+    }
+
+    private static bool TryParseNestedJson(string value, out object? parsedValue)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            parsedValue = ConvertJsonElement(document.RootElement);
+            return true;
+        }
+        catch
+        {
+            parsedValue = null;
+            return false;
+        }
+    }
+
+    private static bool TryFormatXml(string value, out string formattedXml)
+    {
+        try
+        {
+            var document = XDocument.Parse(value, LoadOptions.PreserveWhitespace);
+            formattedXml = document.ToString();
+            return true;
+        }
+        catch
+        {
+            formattedXml = string.Empty;
+            return false;
+        }
+    }
+
+    private static object CreateXmlExportObject(string formattedXml)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["_format"] = "xml",
+            ["_lines"] = formattedXml
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n')
+                .ToList(),
+        };
+    }
+
+    private static object? ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Object => element.EnumerateObject()
+                .ToDictionary(static property => property.Name, static property => ConvertJsonElement(property.Value), StringComparer.OrdinalIgnoreCase),
+            JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToList(),
+            JsonValueKind.String => ConvertExportValue(element.GetString() ?? string.Empty),
+            JsonValueKind.Number => element.TryGetInt64(out var intValue)
+                ? intValue
+                : element.TryGetDecimal(out var decimalValue)
+                    ? decimalValue
+                    : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            _ => element.ToString(),
+        };
     }
 
     private static string ConvertRegistryValue(object? value)

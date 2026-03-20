@@ -165,7 +165,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         try
         {
-            await Task.Run(() => _snapshotService.Export(new ExportRequest { RegistryPath = registryPath, OutputFilePath = outputPath }));
+            await Task.Run(() => ExportConfigurationSnapshot(configuration, registryPath, outputPath));
             configuration.StatusLine = "Exported";
             configuration.StatusDetail = $"已写出 JSON: {outputPath}";
             SetStatus("Exported", $"{configuration.Name} 已写出 JSON: {outputPath}");
@@ -313,6 +313,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             configuration.CurrentSnapshot = result.CurrentSnapshot;
             configuration.LastRefreshAtUtc = result.CurrentSnapshot.CapturedAtUtc;
             ApplyDiffResult(configuration, result.Diff);
+            var outputPath = configuration.OutputPath.Trim();
+            var hasOutputPath = !string.IsNullOrWhiteSpace(outputPath);
+            if (hasOutputPath)
+            {
+                await Task.Run(() => _snapshotService.ExportSnapshot(result.CurrentSnapshot, outputPath));
+            }
 
             if (configuration.BaselineSnapshot is null)
             {
@@ -327,6 +333,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 var diffCount = result.Diff.Entries.Count;
                 configuration.StatusLine = diffCount == 0 ? "No Changes" : "Changes Detected";
                 configuration.StatusDetail = diffCount == 0 ? "当前快照与基线一致。" : $"检测到 {diffCount} 条变化。";
+            }
+
+            if (hasOutputPath)
+            {
+                if (configuration.BaselineSnapshot is null)
+                {
+                    configuration.StatusLine = "Auto Exported";
+                }
+
+                configuration.StatusDetail = $"已自动导出 JSON: {outputPath}";
             }
 
             configuration.NextRefreshAtUtc = configuration.WatchEnabled
@@ -376,6 +392,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ConfigurationsListBox.Items.Refresh();
         UpdateSelectedConfigurationVisuals();
         PersistSettings();
+    }
+
+    private void ExportConfigurationSnapshot(WatchConfigurationState configuration, string registryPath, string outputPath)
+    {
+        if (configuration.CurrentSnapshot is not null
+            && string.Equals(configuration.CurrentSnapshot.SourcePath, NormalizeRegistryPath(registryPath), StringComparison.OrdinalIgnoreCase))
+        {
+            _snapshotService.ExportSnapshot(configuration.CurrentSnapshot, outputPath);
+            return;
+        }
+
+        _snapshotService.Export(new ExportRequest
+        {
+            RegistryPath = registryPath,
+            OutputFilePath = outputPath,
+        });
+    }
+
+    private static string NormalizeRegistryPath(string registryPath)
+    {
+        var trimmed = registryPath.Trim();
+        var hkeyIndex = trimmed.IndexOf("HKEY_", StringComparison.OrdinalIgnoreCase);
+        return (hkeyIndex >= 0 ? trimmed[hkeyIndex..] : trimmed).TrimEnd('\\');
     }
 
     private void RestorePersistedSettings()
